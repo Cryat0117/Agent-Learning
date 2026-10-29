@@ -53,3 +53,7 @@ if __name__ == "__main__":
 
     export_initial_student(csv_file)
     analyze_student_scores(csv_file, json_file)
+
+    """
+    测试git
+    """
