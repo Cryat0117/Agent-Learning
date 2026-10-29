@@ -1,4 +1,14 @@
 {
   "average": 77.5,
-  "count": 2
+  "count": 2,
+  "data": [
+    {
+      "name": "方源",
+      "score": 95.0
+    },
+    {
+      "name": "方正",
+      "score": 60.0
+    }
+  ]
 }
