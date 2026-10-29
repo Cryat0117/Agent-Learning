@@ -7,7 +7,7 @@ def export_initial_student(file_path: Path) -> None:
     """
     写入初始学生数据到指定的CSV文件中。
     """
-    data = [{"name": "方源", "score": 95}, {"name": "方正", "score": 60}]
+    data = [{"name": "方源", "score": 95}, {"name": "方正", "score": 60},{"name": "白凝冰", "score": "缺考"}]
     with open(file_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["name", "score"])
         writer.writeheader()
