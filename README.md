@@ -1,9 +1,9 @@
-# Agent-Learning | 大模型应用工程与智能体开发实践
+﻿# Agent-Learning | 大模型应用工程与智能体开发实践
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Package Manager](https://img.shields.io/badge/uv-fast%20packaging-purple.svg)](https://github.com/astral-sh/uv)
 [![Docker](https://img.shields.io/badge/Docker-Desktop%20%2F%20WSL2-2496ED.svg)](https://www.docker.com/)
-[![LeetCode](https://img.shields.io/badge/LeetCode-50%2B%20Solved-orange.svg)](https://leetcode.cn/u/serene-i3assirxg/)
+[![LeetCode](https://img.shields.io/badge/LeetCode-60%20Solved%20%C2%B7%2031%20Medium-orange.svg)](https://leetcode.cn/u/serene-i3assirxg/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 > 本仓库记录从零构建生产级 **AI Agent / 大模型应用工程** 的完整代码演进路径与技术实践沉淀。  
@@ -18,7 +18,7 @@
   - 高效包管理工具 `uv` 与现代虚拟环境管理
   - Windows 原生 + WSL2 混合双引擎、Docker 容器化隔离实操
   - 原生手写 mini-agent（ReAct 循环）、FastAPI + SSE 打字机流式传输、Redis 生产级分布式限流
-  - 算法每日冲刺：力扣已突破 50+ 题（Medium 26+，滑动窗口/双指针专题精通）
+  - 算法每日冲刺：力扣 **60 题**（Easy 29 / **Medium 31** / Hard 0），滑动窗口与双指针专题推进中
 - [ ] **阶段 1：大模型底层数学与结构原理（W15–W26）**
   - PyTorch 5 步标准训练循环、从零手撕多头自注意力（MHA）与因果掩码（Causal Mask）
   - mini-GPT 搭建、自回归文本生成、KV Cache 推理加速与 GQA 显存推导、LoRA 低秩微调
@@ -40,7 +40,7 @@ D:\Agent-Learning\
 ├── student.csv              # W2 数据源示例（含数据校验容错测试用例）
 ├── result.json              # W2 结构化分析报表导出文件
 ├── README.md                # 仓库全局自述文档与工程规范
-└── 待解决.md                # 学习路径中待复盘、待攻关的技术债务清单
+└── 待处理.md                # 学习路径中待复盘、待攻关的技术债务清单
 ```
 
 ### 核心模块说明
@@ -85,6 +85,73 @@ uv run python w1_check.py
 # 运行 W2 工程化数据分析与报表导出
 uv run python w2_data_process.py
 ```
+
+---
+
+## 📅 学习日志（W1–W2）
+
+> 规则：每天 3 行 —— **学了什么 / 卡在哪 / 产出是什么**。
+> 卡点列为 `—` 表示当天没遇到硬阻塞（**以后要真记，卡点才是最值钱的部分**）。
+
+### 2026-10-16（五）· 提前启动
+| 项 | 内容 |
+|---|---|
+| 学了什么 | 建 GitHub 仓库；装 Python / uv / VSCode；写 `w1_check.py`（阶乘 + 终端输入输出） |
+| 卡在哪 | — |
+| 产出 | 3 次 commit + 首次推送（`a25332c feat: add w1_check script`） |
+
+> 📌 比 W1 正式开始（10/19）早了 3 天。
+
+### 2026-10-19 ~ 10-25 · **W1 正式周（10/22 完成）**
+| 项 | 内容 |
+|---|---|
+| 学了什么 | 黑马 Python+AI **P9–P56**（48 集 / 12.4h）：字面量、运算符、if/match/循环、列表·字符串·元组·集合·字典、列表推导式 |
+| 卡在哪 | — |
+| 产出 | 仓库可用 + 首个脚本跑通 · ✅ **比计划提前 3 天** |
+
+> 本周无新 commit —— 代码在 10/16 已提前提交，这周主要是看视频 + 刷题。
+
+### 2026-10-26（一）· W2 第 1 天
+| 项 | 内容 |
+|---|---|
+| 学了什么 | 函数基础与进阶（作用域/传参/默认参数/`*args`/lambda/递归）、类型注解（P57–P76） |
+| 卡在哪 | — |
+| 产出 | 建 **`待处理.md`** 记录技术债（23:07 建「待解决」，23:09 改名「待处理」） |
+
+### 2026-10-28（三）· **W2 核心交付完成**
+| 项 | 内容 |
+|---|---|
+| 学了什么 | 文件操作与 JSON（P110–P112）；`csv.DictWriter` / `DictReader`、`json.dump` 参数 |
+| 卡在哪 | — |
+| 产出 | **`828457b feat: w2 csv and json`** —— CSV→JSON 统计管道跑通 · ✅ **比计划提前 3 天（3 天走完 7 天）** |
+
+### 2026-10-29（四）· 重构日
+| 项 | 内容 |
+|---|---|
+| 做了什么 | 把脚本重构成模块化三层（`export_initial` / `analyze` / `main`）；补全类型注解；加防御性校验 |
+| 卡在哪 | — |
+| 产出 | 3 次 refactor commit（14:52 / 15:03 / 15:59）+ README 全面重写（徽章、目录树、模块说明、快速上手） |
+
+### 2026-10-30（五）· 按代码评审加固
+| 项 | 内容 |
+|---|---|
+| 做了什么 | ① 读 CSV 改 `utf-8-sig`（**剥 BOM**）② `math.isfinite()` 拦 **NaN / Inf** ③ 分数范围 `[0,100]` ④ 空姓名丢弃 ⑤ 同名去重 ⑥ 零有效记录抛异常 ⑦ 返回契约恒定（`status/avg/count/skipped/data`）⑧ 表头校验 fail-fast ⑨ 种子数据不再覆盖 |
+| 卡在哪 | **BOM 这条最难消化** —— 不剥 BOM 时整张表被静默跳过、脚本还报"分析完成" |
+| 产出 | 2 次 commit：`26664ad`（BOM/NaN/契约）、`818b111`（边界测试 NaN·Inf·越界） |
+
+> ⚠️ **仍未做**：`json.dump` 缺 `allow_nan=False`。目前靠 `math.isfinite` 前置拦截，属于"单点防御"；加上它才是双保险，能保证 `result.json` 在**任何语言**里都能被解析。
+
+### 📊 W1–W2 阶段小结（截至 10-30）
+
+| 指标 | 数值 | 对照计划 |
+|---|---|---|
+| 完成周次 | W1、W2 全部完成 | ✅ 比计划提前约 6 天 |
+| 视频 | P9–P98 + P110–P112 ≈ **21h** | 按计划覆盖 |
+| 代码 | 2 个模块 + README + 技术债清单 | 超出计划（计划只要求 1 个脚本） |
+| LeetCode | **60 题**（Easy 29 / Medium 31） | **计划 W11 才要求 60 题 → 提前 8.5 周** |
+| 日均投入 | 约 4 h | 略高于 22–27h/周 的上限，注意可持续性 |
+
+**下一步（W3，11/02–11/08）**：面向对象 + 异常（黑马 P77–P87，视频 3.2h）；把 W2 脚本重构成类结构（抽 `BaseAnalyzer`、写 `CsvAnalyzer` / `JsonAnalyzer`、自定义 `ScoreOutOfRangeError`）。
 
 ---
 
