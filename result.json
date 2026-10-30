@@ -2,10 +2,11 @@
   "status": "ok",
   "average": 74.0,
   "count": 3,
-  "skipped": 3,
+  "skipped": 6,
   "skipped_reasons": {
-    "非数字": 2,
-    "超出 0-100": 1
+    "非数字": 3,
+    "超出 0-100": 1,
+    "NaN/Inf": 2
   },
   "data": [
     {
