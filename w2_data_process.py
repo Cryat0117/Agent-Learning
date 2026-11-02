@@ -95,7 +95,7 @@ def analyze_student_scores(csv_path: Path, output_json_path: Path) -> Dict[str, 
     }
 
     with open(output_json_path, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
+        json.dump(summary, f, indent=2, ensure_ascii=False, allow_nan=False)
 
     print(
         f"\n[完成] 有效 {len(valid_records)} 条，跳过 {skipped_total} 条，"

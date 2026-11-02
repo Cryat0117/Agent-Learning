@@ -2,11 +2,13 @@
   "status": "ok",
   "average": 74.0,
   "count": 3,
-  "skipped": 6,
+  "skipped": 8,
   "skipped_reasons": {
     "非数字": 3,
     "超出 0-100": 1,
-    "NaN/Inf": 2
+    "NaN/Inf": 2,
+    "姓名为空": 1,
+    "重复姓名": 1
   },
   "data": [
     {
