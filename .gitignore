@@ -1,1 +1,9 @@
-﻿__pycache__/
+﻿# 虚拟环境与依赖
+.venv/
+
+# 敏感密钥配置文件（绝对禁止推送到 GitHub）
+.env
+
+# Python 缓存
+__pycache__/
+*.pyc
