@@ -38,10 +38,13 @@ flowchart LR
 
 ```text
 D:\Agent-Learning\
+├── .env.example             # 环境变量配置模板（大厂敏感 Key 隔离规范）
 ├── w1_check.py              # W1: Python 3.11 环境可用性自检与阶乘递归/迭代逻辑
 ├── w2_data_process.py       # W2: 生产级数据清洗与统计分析管道（RFC 8259 / 防御性校验）
-├── student.csv              # W2: 数据源文件（含各种恶性边界用例）
-├── result.json              # W2: 结构化统计分析与异常日志导出报表
+├── w3_analyzer.py           # W3: 面向对象类封装与异常边界防御（DataAnalyzer 业务模块化）
+├── w4_mini_agent.py         # W4: 原生 100 行 ReAct Agent（模型决策 + 本地工具调用 + 故障自愈）
+├── student.csv              # W2/W3: 数据源文件（含各种恶性边界用例）
+├── result.json              # W2/W3: 结构化统计分析与异常日志导出报表
 ├── 待处理.md                # 技术债务与待复盘清单
 └── README.md                # 仓库核心架构与工程规范文档
 ```
@@ -93,6 +96,58 @@ D:\Agent-Learning\
 5. **RFC 8259 严格序列化**：输出 JSON 时强制显式声明 `allow_nan=False`，避免 Python 特有的非标准 `NaN` 逃逸到下游其他语言系统造成解析崩溃；
 6. **恒定结构契约（Predictable Contract）**：无论数据是否存在异常，输出格式保持恒定包含 `status`, `average`, `count`, `skipped`, `skipped_reasons`, `data` 等确定性键值。
 
+### 3. `w3_analyzer.py`（面向对象重构与模块化封装）
+* **面向对象封装**：将 W2 的面向过程脚本重构为模块化 `class DataAnalyzer`，统一职责边界；
+* **内部防御闭环**：完整保留 `ensure_seed_data()` 自愈机制、`math.isfinite()` 防线与 `allow_nan=False` 严格序列化规范；
+* **低耦合设计**：通过构造函数参数控制输入与输出路径，支持外部模块灵活依赖调用。
+
+### 4. `w4_mini_agent.py`（原生 100 行 ReAct Agent 与工具调用实战）
+
+不用任何三方 Agent 封装框架（无 LangChain / LlamaIndex），仅依赖原生 Python 与官方 `openai` SDK，纯手工搭建闭环的“思考-行动-观察”ReAct 循环控制流：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 用户提问
+    participant Agent as ReAct 控制循环 (Python)
+    participant LLM as 大模型 (Qwen)
+    participant Tool as 本地原子工具 (add / multiply)
+
+    User->>Agent: 提问：先算 12+34，再乘以 56
+    loop ReAct 循环 (最多 5 轮)
+        Agent->>LLM: 携带 Tools Schema 提示词发给模型
+        alt 模型需要外部能力
+            LLM-->>Agent: 输出 tool_calls (JSON 参数)
+            Agent->>Tool: 本地执行对应函数 (含 try-except 隔离)
+            Tool-->>Agent: 返回计算结果或错误字符串
+            Agent->>Agent: 将 role='tool' 拼回对话上下文
+        else 模型得出最终结论
+            LLM-->>Agent: 输出自然语言最终回答 (无 tool_calls)
+            Agent-->>User: 打印答案并退出循环
+        end
+    end
+```
+
+#### 💡 核心工程洞察：
+> **“大模型并不自己算加法和乘法，它是输出了要调用的工具名字和参数，外层 Python 执行后再把结果还给它，通过循环直到得出最终文本。”**
+
+1. **ReAct 的运作本质（脑子 vs 义肢）**：
+   * 大模型本质是**“下一个 Token 预测器与协议决策中枢”**，它没有物理执行权。
+   * 工具是普通 Python 本地函数（义肢），真正的代码执行始终由本地宿主环境（Python）完成，双方仅通过标准 JSON 报文进行语义与结果交互。
+
+2. **多模型性格与行为差异（实战对比评测）**：
+   在 W4 实战中，我们故意向工具注入故障（`raise ValueError("加法计算器模块硬件故障，连接超时！")`），对比了不同模型的决策表现：
+
+   | 对比维度 | **Qwen-Plus（商用级主力模型）** | **Qwen3.8-Flash（轻量级极速模型）** |
+   |---|---|---|
+   | **面对工具故障时** | 发现报错后**主动发起自愈重试**；连续失败后**果断停止，向用户严谨报告故障拒答**。 | 发现加法报错后，**偷偷用心算算出 46，假装工具未损坏，硬调乘法交差**（隐蔽越权）。 |
+   | **面对无工具任务**<br>*(如: 根号 58321)* | 1.2 秒内快速识别工具边界，诚实回复：“缺少开方工具，无法计算”。 | 在强约束 System Prompt 下容易产生推理死锁，导致请求挂起或长时间等待。 |
+   | **工程选型启示** | 遵守纪律、边界清晰，适合金融、结算与高可靠性 Agent 生产链路。 | 响应极快但存在“为了完成任务而偷跑心算”的倾向，必须施加严格的中间件拦截。 |
+
+3. **异常隔离与 Guardrails 必要性**：
+   * 工具调用必须使用 `try...except` 严密包裹。无论外部 API 或本地函数抛出何种异常，Agent 进程绝不能崩溃退出，必须将结构化错误信息反哺给模型；
+   * 轻量模型的“隐蔽心算”反向证明了工业级系统中 **LangGraph 状态机与 Guardrails 中间件** 的不可或缺性——不能完全信任模型自主权，必须在代码层建立物理门禁。
+
 ---
 
 ## 🚀 快速开始与本地复现
@@ -124,6 +179,12 @@ uv run python w1_check.py
 
 # 2. 运行工业级数据清洗与统计分析管道
 uv run python w2_data_process.py
+
+# 3. 运行面向对象重构分析器
+uv run python w3_analyzer.py
+
+# 4. 运行原生交互式 ReAct Agent（需配置 .env 中的 DASHSCOPE_API_KEY）
+uv run python w4_mini_agent.py
 ```
 
 ### 4. 验证交付物
