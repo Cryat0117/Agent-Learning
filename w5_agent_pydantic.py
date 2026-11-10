@@ -1,21 +1,40 @@
 import os
 import json
 import time
+import uuid
+import logging
 from functools import wraps
 from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError
 
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 load_dotenv()  # 从 .env 文件加载环境变量
 api_key = os.getenv("DASHSCOPE_API_KEY")
 if not api_key:
     raise ValueError("请在 .env 文件中设置 DASHSCOPE_API_KEY 环境变量。")
 
-MODEL_NAME = "qwen-plus"  # 选择模型名称
+MODEL_NAME = "qwen3.8-flash"  # 选择模型名称
 client = OpenAI(
     api_key=api_key,
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
+
+def log_json(level: str, request_id: str, tool: str, duration_ms: float, status: str, detail: str = ""):
+    log_entry = {
+        "ts": round(time.time(), 3),
+        "level": level,
+        "request_id": request_id,
+        "tool": tool,
+        "duration_ms": duration_ms,
+        "status": status,
+        "detail": detail
+    }
+    line = json.dumps(log_entry, ensure_ascii=False)
+    if level == "INFO":
+        logging.info(line)
+    else:
+        logging.error(line)
 
 class AddParams(BaseModel):
     """计算两个整数相加"""
@@ -48,7 +67,6 @@ def timed(func):
         start = time.perf_counter()
         result = func(*args, **kwargs)
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
-        print(f"[计时] 函数 {func.__name__} 执行时间: {duration_ms} 毫秒")
         return result, duration_ms
     return wrapper
 
@@ -78,12 +96,14 @@ def run_agent(query: str, max_steps: int = 5):
     1. query: 用户输入的自然语言问题
     2. max_steps: 最大交互轮数，防止无限循环
     """
+    request_id = f"req-{uuid.uuid4().hex[:8]}"
+
     messages = [
         {"role": "system", "content": "你是一个严谨的计算助手。必须严格使用提供的工具进行计算，不要自行心算。"},
         {"role": "user", "content": query}
     ]
 
-    print(f"\n[用户提问]: {query}\n" + "-" * 50)
+    print(f"\n[用户提问]: {query} (Trace: {request_id})\n" + "-" * 50)
 
     for step in range(max_steps):
         resp = client.chat.completions.create(
@@ -105,6 +125,7 @@ def run_agent(query: str, max_steps: int = 5):
             tool_entry = tool_registry.get(fn_name)
             if not tool_entry:
                 res_content = f"Error: 未知工具 {fn_name}"
+                log_json(level="ERROR", request_id=request_id, tool=fn_name, duration_ms=0.0, status="not_found", detail=res_content)
             else:
                 try:
                     # 1. 原始 JSON 反序列化
@@ -114,13 +135,33 @@ def run_agent(query: str, max_steps: int = 5):
                     # 3. 校验通过，解包执行真实工具（接收计算结果与耗时）
                     calc_res, duration_ms = tool_entry["func"](**param_obj.model_dump())
                     res_content = calc_res
-                    print(f"<- 步骤 {step + 1}: 工具 `{fn_name}` 执行成功 (耗时: {duration_ms}ms) | 结果: {res_content}")
+                    log_json(
+                        level="INFO",
+                        request_id=request_id,
+                        tool=fn_name,
+                        duration_ms=duration_ms,
+                        status="success"
+                    )
                 except ValidationError as val_err:
                     res_content = f"Error: 参数校验失败: {val_err.errors()}"
-                    print(f"⚠️ 步骤 {step + 1}: 参数契约校验拦截: {res_content}")
+                    log_json(
+                        level="ERROR",
+                        request_id=request_id,
+                        tool=fn_name,
+                        duration_ms=0.0,
+                        status="validation_error",
+                        detail=str(val_err.errors())
+                    )
                 except Exception as e:
                     res_content = f"Error: 工具执行失败: {e}"
-                    print(f"❌ 步骤 {step + 1}: 工具异常: {res_content}")
+                    log_json(
+                        level="ERROR",
+                        request_id=request_id,
+                        tool=fn_name,
+                        duration_ms=0.0,
+                        status="tool_error",
+                        detail=str(e)
+                    )
             messages.append({"role": "tool", "tool_call_id": call.id, "content": res_content})
     print(f"⚠️ 达到最大思考轮数 ({max_steps})，强制停止。")
     return None
