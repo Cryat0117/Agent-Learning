@@ -44,6 +44,10 @@ D:\Agent-Learning\
 ├── w3_analyzer.py           # W3: 面向对象类封装与异常边界防御（DataAnalyzer 业务模块化）
 ├── w4_mini_agent.py         # W4: 原生 100 行 ReAct Agent（模型决策 + 本地工具调用 + 故障自愈）
 ├── w5_agent_pydantic.py     # W5: Pydantic v2 契约驱动 + 结构化日志观测 + 模型认知博弈实战
+├── demo_wall1_blocking.py   # W6: 异步并发基石实战 - 撞墙实验 1（同步阻塞陷阱复现与修复）
+├── async_core/              # W6: 工业级异步基础设施核心包（限流 / 重试 / 背压池）
+│   ├── __init__.py          # 模块导出定义
+│   └── ratelimit.py         # 令牌桶限流器（待实现）
 ├── student.csv              # W2/W3: 数据源文件（含各种恶性边界用例）
 ├── result.json              # W2/W3: 结构化统计分析与异常日志导出报表
 ├── 待处理.md                # 技术债务与待复盘清单
@@ -188,6 +192,42 @@ flowchart TD
 
 > **关键工程结论**：  
 > 大模型在 Agent 中绝非被动的“代码执行器”，它具备由海量参数构成的“先验主见”。**只有当外部信息彻底超出模型的先验认知边界，或者在架构层通过 Prompt/物理门禁剥离心算自由度时，Agent 才能真正做到对工具结果的 100% 绝对忠实。**
+
+### 6. `demo_wall1_blocking.py` 与 `async_core/`（W6 异步高并发基石：第一道墙·阻塞陷阱）
+
+在大模型智能体系统（如 Agent 多工具并发调用、FastAPI 高并发接口服务化、SSE 打字机流式传输）中，Python 的 `asyncio` 事件循环（Event Loop）是整套系统的动力心脏。本实验严格执行“五步实战法”，亲手复现、定位并攻克了高并发编程中最致命的**“第一道墙：阻塞陷阱”**：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as 外部并发请求 (3个)
+    participant Loop as 单线程 Event Loop
+    participant Coro as 协程任务 (handle)
+    participant Worker as 独立线程池 (to_thread)
+
+    Note over Loop,Coro: ❌ 错误示范：调用 time.sleep(0.5) 或 requests.get()
+    Loop->>Coro: 执行协程 0
+    Coro-->>Loop: 调用同步阻塞函数 (未交出控制权)
+    Note over Loop: 主线程物理冻结 0.5s！协程 1、2 在排队中饿死
+    Note over Loop: 3 个并发任务总耗时恶化至 1.5s+ (并发退化为串行)
+
+    Note over Loop,Worker: ✅ 正确示范：非阻塞 await 或 to_thread 隔离
+    Loop->>Coro: 执行协程 0 (await asyncio.sleep)
+    Coro-->>Loop: 释放 CPU 控制权，转入就绪队列
+    Loop->>Coro: 立即无缝调度协程 1 与 协程 2
+    Note over Loop: 3 个任务并行推进，总耗时仅 0.5s！
+```
+
+#### 🛡️ 核心工程避坑指南：
+1. **阻塞陷阱的隐蔽危害**：
+   * 表面上使用了 `async def` 和 `asyncio.gather`，看似编写了异步代码；
+   * 若协程内部误调用了同步阻塞调用（如 `time.sleep`、`requests.get()`、本地大文件同步读写 `open().read()`、耗时 CPU 计算）；
+   * **底层致病机理**：Python `asyncio` 为**单线程协作式调度**，全靠协程主动遇到 `await` 时交出控制权。一旦发生阻塞，整个进程唯一的事件循环被瞬间点穴冻结，全局其他所有并发请求、甚至健康检查探活探针全部超时瘫痪！
+2. **两级工程防御策略**：
+   * **第一级：全链路原生异步化（治本）**：将阻塞库全量替换为现代异步非阻塞协议栈（如 `await asyncio.sleep()`、`httpx.AsyncClient`、`aiofiles`、`redis.asyncio`）；
+   * **第二级：独立线程池隔离护盾（治标但实用）**：若对接专有 SDK 或第三方库**只有同步版本**时，使用 `await asyncio.to_thread(func, *args)`（底层调用 `run_in_executor`）将阻塞代码扔入后台独立线程池，确保主事件循环毫秒级平稳流转。
+3. **`async_core/` 架构组件包起步**：
+   * 在项目根目录正式建立工业级异步基础设施包 `async_core/`，为后续封装 `AsyncTokenBucket`（令牌桶限流）、`@retry`（退避重试）与 `bounded_worker_pool`（背压工作池）奠定清晰的包架构骨骼。
 
 ---
 
