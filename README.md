@@ -46,7 +46,8 @@ D:\Agent-Learning\
 ├── w5_agent_pydantic.py     # W5: Pydantic v2 契约驱动 + 结构化日志观测 + 模型认知博弈实战
 ├── walls/                   # W6: 异步高并发撞墙实战集 (三道必撞的工程之墙)
 │   ├── wall1_blocking.py    # 墙 1: 同步阻塞陷阱与事件循环卡死复现与修复
-│   └── wall2_cancel.py      # 墙 2: 取消被吞与信号量永久泄漏死锁攻克
+│   ├── wall2_cancel.py      # 墙 2: 取消被吞与信号量永久泄漏死锁攻克
+│   └── wall3_backpressure.py # 墙 3: 假限流与无背压内存爆炸 vs 生产级有界队列
 ├── async_core/              # W6: 工业级异步基础设施核心包（限流 / 重试 / 背压池）
 │   ├── __init__.py          # 模块导出定义
 │   ├── ratelimit.py         # 令牌桶限流器（待实现）
@@ -276,7 +277,58 @@ sequenceDiagram
 
 ---
 
-#### 📦 3. `async_core/` 架构组件包起步
+#### 🧱 墙 3：假限流与无背压导致内存爆炸（`walls/wall3_backpressure.py`）
+
+在高并发爬虫、数据导入或 Agent 批量任务分发中，很多工程师以为加上 `asyncio.Semaphore(50)` 限制并发就万事大吉，却在面对数万级任务时遭遇服务 OOM（Out Of Memory）惨烈崩溃：
+
+```mermaid
+flowchart TD
+    subgraph ❌ 错版：无背压 gather 调度（瞬间撑爆内存）
+        T["30,000 个任务推导式 [worker(i)...]"] -->|瞬间堆积| M["内存暴增 30,000 个活跃 Coroutine 对象 (+40MB)"]
+        M --> S{"Semaphore(50)"}
+        S -->|仅 50 个执行| W1["50 个工人干活"]
+        S -.->|29,950 个常驻内存就绪态挂起| W2["29,950 个任务活活霸占堆内存"]
+    end
+
+    subgraph ✅ 对版：Queue(maxsize=100) 生产者-消费者模式（真背压）
+        P["生产者 (Producer)"] -->|await q.put(i)| Q["有限队列 Queue(maxsize=100)"]
+        Q -->|队列满 100 自动物理阻塞| P
+        Q -->|拉取任务| C["50 个固定工人 (Consumers)"]
+        C -->|执行完成 task_done| Q
+        Note["全局任意时刻常驻内存任务峰值仅 52 个 (1 生产者 + 50 工人 + 1 调度)"]
+    end
+```
+
+##### 🛡️ 核心工程机理与实测数据复盘：
+1. **“限制并发”不等于“限制内存”（背压缺失致命陷阱）**：
+   * `[worker(i) for i in range(30_000)]` 列表推导式在执行的瞬间，Python 虚拟机就会在堆内存中完整实例化出 **30,000 个协程对象（Coroutine Objects）**；
+   * `asyncio.Semaphore(50)` 仅仅限制了同一时刻进入临界区执行的协程数量，**无法阻止剩余 29,950 个协程以“就绪/等待”状态存活在内存中**；
+   * 若每个协程闭包携带有上下文参数、HTTP 客户端连接或解析结果，堆积量级达到 10 万+ 时，将瞬间击穿系统物理内存触发操作系统 OOM Killer！
+2. **真背压解药：`asyncio.Queue(maxsize=N)` 生产者-消费者模式**：
+   * **有界队列防线**：显式声明 `maxsize=100`。当生产速度大于消费速度、队列被填满时，`await q.put(item)` 会**自动挂起阻塞生产者**，从源头切断内存无序膨胀，实现真正的“背压（Backpressure）”反馈；
+   * **内存常数级锁定**：全局仅维护 1 个生产者与固定数量（50 个）的消费者 Worker 协程，活跃任务总数死死锚定在 $O(\text{concurrency})$，内存波动被收敛在可控范围内；
+   * **优雅停机毒丸机制（Sentinel Pattern）**：生产完毕后投放与消费者数量相等的 `SENTINEL` 单例对象，消费者取到后主动 `break` 退出循环，无需暴力 `cancel`，杜绝悬挂任务与内存泄漏。
+
+##### 📊 实测性能与内存对照 Benchmark：
+
+| 实验版本 | 调度机制 | 任务总数 | 内存峰值活跃协程数 | 内存净增量 (RSS Delta) | 运行状态 |
+|---|---|---|---|---|---|
+| **❌ 错版（无背压）** | `gather` + `Semaphore(50)` | 30,000 | **30,000 个** | **+40.5 MB**（瞬间飙升至 59.5MB） | 内存失控，海量微型对象堆积 |
+| **✅ 对版（真背压）** | `Queue(maxsize=100)` + 50 Workers | 30,000 | **仅 52 个** | **仅波动 1~2 MB**（平稳收敛至 29MB） | 内存坚如磐石，极具工程预测性 |
+
+---
+
+##### 🏆 异步高并发三道必撞之墙·终极防线复盘
+
+| 关卡编号 | 必撞暗坑 / 故障现象 | 致命根因 | 生产级终极解药 |
+|:---:|---|---|---|
+| **墙 1** | 事件循环全场冻结、并发退化为串行、探针超时 | 单线程事件循环内误调用了同步阻塞代码（`time.sleep`, `requests.get`, 同步 IO） | 原生非阻塞（`asyncio.sleep`, `httpx`）或 `asyncio.to_thread()` 独立线程池隔离 |
+| **墙 2** | 超时中断后，余票枯竭为 0，后续所有请求永久死锁 | `CancelledError` 继承自 `BaseException`，被裸 `except` 生吞导致跳过 `release()` | 遵循借还守恒，强制采用 `async with sem:` 语法糖保证 `__aexit__` 铁律释放 |
+| **墙 3** | 并发虽有限制，但面对海量批处理时内存暴涨崩溃 (OOM) | 缺乏背压机制，推导式瞬间实例化海量就绪协程堆积在堆内存中 | `asyncio.Queue(maxsize=N)` 生产者-消费者模式 + 毒丸退出机制，物理锁定内存常数级 |
+
+---
+
+#### 📦 4. `async_core/` 架构组件包起步
 在项目根目录正式建立工业级异步基础设施包 `async_core/` 与自动化测试集 `async_core/tests/`，为后续封装 `AsyncTokenBucket`（令牌桶限流）、`@retry`（退避重试）与 `bounded_worker_pool`（背压工作池）奠定坚实的 TDD 开发基石。
 
 ---
@@ -316,6 +368,11 @@ uv run python w3_analyzer.py
 
 # 4. 运行原生交互式 ReAct Agent（需配置 .env 中的 DASHSCOPE_API_KEY）
 uv run python w4_mini_agent.py
+
+# 5. 运行异步高并发三道必撞之墙实战对比
+uv run python walls/wall1_blocking.py
+uv run python walls/wall2_cancel.py
+uv run python walls/wall3_backpressure.py
 ```
 
 ### 4. 验证交付物
