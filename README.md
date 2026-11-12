@@ -44,10 +44,13 @@ D:\Agent-Learning\
 ├── w3_analyzer.py           # W3: 面向对象类封装与异常边界防御（DataAnalyzer 业务模块化）
 ├── w4_mini_agent.py         # W4: 原生 100 行 ReAct Agent（模型决策 + 本地工具调用 + 故障自愈）
 ├── w5_agent_pydantic.py     # W5: Pydantic v2 契约驱动 + 结构化日志观测 + 模型认知博弈实战
-├── demo_wall1_blocking.py   # W6: 异步并发基石实战 - 撞墙实验 1（同步阻塞陷阱复现与修复）
+├── walls/                   # W6: 异步高并发撞墙实战集 (三道必撞的工程之墙)
+│   ├── wall1_blocking.py    # 墙 1: 同步阻塞陷阱与事件循环卡死复现与修复
+│   └── wall2_cancel.py      # 墙 2: 取消被吞与信号量永久泄漏死锁攻克
 ├── async_core/              # W6: 工业级异步基础设施核心包（限流 / 重试 / 背压池）
 │   ├── __init__.py          # 模块导出定义
-│   └── ratelimit.py         # 令牌桶限流器（待实现）
+│   ├── ratelimit.py         # 令牌桶限流器（待实现）
+│   └── tests/               # 自动化单元测试集 (TDD 规范)
 ├── student.csv              # W2/W3: 数据源文件（含各种恶性边界用例）
 ├── result.json              # W2/W3: 结构化统计分析与异常日志导出报表
 ├── 待处理.md                # 技术债务与待复盘清单
@@ -193,9 +196,11 @@ flowchart TD
 > **关键工程结论**：  
 > 大模型在 Agent 中绝非被动的“代码执行器”，它具备由海量参数构成的“先验主见”。**只有当外部信息彻底超出模型的先验认知边界，或者在架构层通过 Prompt/物理门禁剥离心算自由度时，Agent 才能真正做到对工具结果的 100% 绝对忠实。**
 
-### 6. `demo_wall1_blocking.py` 与 `async_core/`（W6 异步高并发基石：第一道墙·阻塞陷阱）
+### 6. W6 异步高并发基石实战（`walls/` 撞墙避坑集与 `async_core/` 架构）
 
-在大模型智能体系统（如 Agent 多工具并发调用、FastAPI 高并发接口服务化、SSE 打字机流式传输）中，Python 的 `asyncio` 事件循环（Event Loop）是整套系统的动力心脏。本实验严格执行“五步实战法”，亲手复现、定位并攻克了高并发编程中最致命的**“第一道墙：阻塞陷阱”**：
+在大模型智能体系统（如 Agent 多工具并发调用、FastAPI 高并发接口服务化、SSE 打字机流式传输）中，Python 的 `asyncio` 事件循环（Event Loop）是整套系统的动力心脏。本模块严格执行 SOP“五步实战法”，连续攻克高并发编程中最致命的两道暗坑：
+
+#### 🧱 墙 1：同步阻塞陷阱与事件循环卡死（`walls/wall1_blocking.py`）
 
 ```mermaid
 sequenceDiagram
@@ -218,7 +223,7 @@ sequenceDiagram
     Note over Loop: 3 个任务并行推进，总耗时仅 0.5s！
 ```
 
-#### 🛡️ 核心工程避坑指南：
+##### 🛡️ 核心工程避坑指南：
 1. **阻塞陷阱的隐蔽危害**：
    * 表面上使用了 `async def` 和 `asyncio.gather`，看似编写了异步代码；
    * 若协程内部误调用了同步阻塞调用（如 `time.sleep`、`requests.get()`、本地大文件同步读写 `open().read()`、耗时 CPU 计算）；
@@ -226,8 +231,53 @@ sequenceDiagram
 2. **两级工程防御策略**：
    * **第一级：全链路原生异步化（治本）**：将阻塞库全量替换为现代异步非阻塞协议栈（如 `await asyncio.sleep()`、`httpx.AsyncClient`、`aiofiles`、`redis.asyncio`）；
    * **第二级：独立线程池隔离护盾（治标但实用）**：若对接专有 SDK 或第三方库**只有同步版本**时，使用 `await asyncio.to_thread(func, *args)`（底层调用 `run_in_executor`）将阻塞代码扔入后台独立线程池，确保主事件循环毫秒级平稳流转。
-3. **`async_core/` 架构组件包起步**：
-   * 在项目根目录正式建立工业级异步基础设施包 `async_core/`，为后续封装 `AsyncTokenBucket`（令牌桶限流）、`@retry`（退避重试）与 `bounded_worker_pool`（背压工作池）奠定清晰的包架构骨骼。
+
+---
+
+#### 🧱 墙 2：取消被吞与信号量永久泄漏（`walls/wall2_cancel.py`）
+
+在高并发服务或 Agent 外部调用中，超时取消（Timeout Cancellation）是常态防御机制。但若异常捕获不当，会导致极其隐蔽的**门票永久泄漏与全局死锁**：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Main as 主调度流程
+    participant Sem as Semaphore(容量=1)
+    participant T0 as 任务 0 (耗时操作)
+    participant T1 as 任务 1 (正常请求)
+
+    Note over Main,Sem: ❌ 错误示范：裸捕获/吞掉 CancelledError
+    T0->>Sem: acquire() 占用门票 (余票: 1 -> 0)
+    Main->>T0: wait_for(0.1s 超时) 强行注入 CancelledError
+    T0->>T0: 触发 except BaseException，提前 return
+    Note over T0,Sem: release() 被永久跳过！门票泄漏，全场票数=0
+    Main->>T1: 发起任务 1
+    T1->>Sem: acquire() 申请门票
+    Note over T1: 票数为 0！无任务释放门票，任务 1 陷入无限死锁！
+
+    Note over Main,Sem: ✅ 正确示范：使用 async with 异步上下文管理器
+    T0->>Sem: __aenter__ 自动 acquire()
+    Main->>T0: wait_for(0.1s 超时) 中断并栈展开
+    T0-->>Sem: __aexit__ 强制拦截执行 release() (余票恢复为 1)
+    Main->>T1: 发起任务 1
+    T1->>Sem: 毫秒级抢到归还的门票，0.5s 顺利执行收尾！
+```
+
+##### 🛡️ 核心八股考点与工程防御：
+1. **`asyncio.CancelledError` 异常继承机理**：
+   * Python 3.8+ 中，`CancelledError` 继承自 **`BaseException`** 而非 `Exception`；
+   * 若滥用 `except BaseException:` 或裸 `except:`，会导致协程取消信号被生吞，跳过后续的清理释放逻辑；
+2. **“借还守恒”与死锁成因**：
+   * 信号量、锁、数据库连接遵循借还守恒：$acquire() \iff release()$；
+   * 一旦借了不还（资源泄漏），当可用配额跌至 0，后续所有请求全量被挂起，造成 CPU/内存为 0 但服务彻底假死的僵局；
+3. **终极解药：异步上下文管理器（`async with sem:`）**：
+   * CPython 官方标准库（`asyncio/locks.py`）中，`Semaphore.__aexit__` 内部直接固化了 `self.release()`；
+   * 离开代码块瞬间（无论正常返回、超时取消还是报错），Python 虚拟机从语言层**100% 强制保证归还门票**，从物理上杜绝死锁。
+
+---
+
+#### 📦 3. `async_core/` 架构组件包起步
+在项目根目录正式建立工业级异步基础设施包 `async_core/` 与自动化测试集 `async_core/tests/`，为后续封装 `AsyncTokenBucket`（令牌桶限流）、`@retry`（退避重试）与 `bounded_worker_pool`（背压工作池）奠定坚实的 TDD 开发基石。
 
 ---
 
