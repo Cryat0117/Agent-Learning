@@ -101,7 +101,7 @@ async def main():
     print(" 🧱 墙 3 终极对决：【无背压 (内存爆炸)】vs【有背压 (内存如磐石)】")
     print("=" * 65 + "\n")
     print("【第一回合：运行无背压错版】")
-    await run_bad_no_backpressure(total_items=30_000, concurrency=50)
+    await run_good_with_backpressure(total_items=30_000, concurrency=50)
     
     print("\n" + "-" * 65 + "\n")
     print("【第二回合：运行有背压对版】")
